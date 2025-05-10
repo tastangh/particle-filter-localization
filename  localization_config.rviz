@@ -1,0 +1,42 @@
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz/Grid
+      Name: Grid
+      Enabled: true
+    - Class: rviz/Pose
+      Name: Estimated Pose
+      Enabled: true
+      Topic: /particle_pose
+      Arrow Color: 0.5; 1; 0.2
+      Shaft Length: 0.5
+      Head Length: 0.2
+      Shaft Radius: 0.02
+      Head Radius: 0.05
+      Alpha: 1
+    - Class: rviz/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+    - Class: rviz/Imu
+      Name: IMU
+      Enabled: true
+      Topic: /imu/data
+      Acceleration Arrow Color: 1; 0; 0
+      Angular Velocity Arrow Color: 0; 0; 1
+      Orientation Arrow Color: 0; 1; 0
+      Alpha: 0.8
+      History Length: 1
+      Covariance: true
+  Enabled: true
+  Name: root
+  Tools:
+    - Class: rviz/Interact
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+    - Class: rviz/FocusCamera
+    - Class: rviz/Measure
+    - Class: rviz/SetInitialPose
+    - Class: rviz/SetGoal
+  Value: true
+Fixed Frame: map
