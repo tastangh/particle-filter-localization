@@ -101,7 +101,7 @@ roslaunch particle_filter_localization localization.launch
 
 # Terminal 3:
 cd ~/robotlar_ws && source devel/setup.bash
-rosbag play hw3.bag --clock
+rosbag play src/hw3.bag --clock
 
 # Terminal 4:
 rviz -d ~/robotlar_ws/localization_config.rviz

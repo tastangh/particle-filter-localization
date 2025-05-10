@@ -82,7 +82,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
         Particle est = pf_ptr->getBestEstimate();
 
         geometry_msgs::PoseStamped pose_msg;
-        pose_msg.header.stamp = ros::Time::now();
+        pose_msg.header.stamp = msg->header.stamp;
         pose_msg.header.frame_id = "map";
         pose_msg.pose.position.x = est.x;
         pose_msg.pose.position.y = est.y;
@@ -94,15 +94,16 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
 
         pose_pub.publish(pose_msg);
 
-        // Publish TF: map -> base_link
+        // TF yayınla
         tf::Transform transform;
         transform.setOrigin(tf::Vector3(est.x, est.y, 0.0));
         tf::Quaternion q;
         q.setRPY(0, 0, est.theta);
         transform.setRotation(q);
-        tf_broadcaster_ptr->sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "base_link"));
+        tf_broadcaster_ptr->sendTransform(tf::StampedTransform(transform, msg->header.stamp, "map", "base_link"));
     }
 }
+
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "particle_filter_node");
@@ -116,9 +117,9 @@ int main(int argc, char** argv) {
     tf::TransformBroadcaster tf_broadcaster;
     tf_broadcaster_ptr = &tf_broadcaster;
 
-    ros::Subscriber odom_sub = nh.subscribe("/odom", 1, odomCallback);
-    ros::Subscriber scan_sub = nh.subscribe("/base_scan", 1, scanCallback);
-
+    ros::Subscriber odom_sub = nh.subscribe("/husky_velocity_controller/odom", 1, odomCallback);
+    ros::Subscriber scan_sub = nh.subscribe("/front/scan", 1, scanCallback);
+    
     pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/particle_pose", 1);
 
     ros::spin();
