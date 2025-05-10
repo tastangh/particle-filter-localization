@@ -1,0 +1,3 @@
+<launch>
+  <node pkg="particle_filter_localization" type="particle_filter_localization_node" name="particle_filter_node" output="screen" />
+</launch>
