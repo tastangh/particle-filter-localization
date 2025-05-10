@@ -2,13 +2,11 @@
 #include <sensor_msgs/LaserScan.h>
 #include <nav_msgs/Odometry.h>
 #include <geometry_msgs/PoseStamped.h>
-#include <gazebo_msgs/ModelStates.h>
 #include <tf/transform_broadcaster.h>
 #include <random>
 #include <vector>
 #include <cmath>
 #include <map>
-#include <string>
 
 struct Particle {
     double x, y, theta;
@@ -34,8 +32,8 @@ public:
     }
 
     void initParticles() {
-        std::uniform_real_distribution<double> x_dist(-5.0, 5.0);
-        std::uniform_real_distribution<double> y_dist(-5.0, 5.0);
+        std::uniform_real_distribution<double> x_dist(0.0, 2.0);
+        std::uniform_real_distribution<double> y_dist(14.0, 16.0);
         std::uniform_real_distribution<double> theta_dist(-M_PI, M_PI);
         particles_.clear();
         for (int i = 0; i < num_particles_; ++i) {
@@ -49,7 +47,7 @@ public:
         double w = odom_msg.twist.twist.angular.z;
 
         double a1 = 0.01, a2 = 0.01, a3 = 0.01, a4 = 0.01, a5 = 0.01, a6 = 0.01;
-        
+
         for (auto& p : particles_) {
             double v_hat = v + sample(a1 * v * v + a2 * w * w);
             double w_hat = w + sample(a3 * v * v + a4 * w * w);
@@ -72,24 +70,25 @@ public:
         double sigma_s = 0.1;
 
         for (auto& p : particles_) {
-            double total_weight = 1.0;
-            for (size_t i = 0; i < scan_msg.ranges.size(); ++i) {
-                double r = scan_msg.ranges[i];
-                double phi = scan_msg.angle_min + i * scan_msg.angle_increment;
-                int s = 1;
-                int c = 1;
+            double total_weight = 1e-9;  // avoid zero weight
 
-                Landmark lm = landmarks_[c];
+            for (const auto& lm_pair : landmarks_) {
+                const Landmark& lm = lm_pair.second;
                 double dx = lm.x - p.x;
                 double dy = lm.y - p.y;
                 double r_hat = std::sqrt(dx * dx + dy * dy);
                 double phi_hat = std::atan2(dy, dx) - p.theta;
 
-                double w_r = gaussian(r - r_hat, sigma_r);
-                double w_phi = gaussian(phi - phi_hat, sigma_phi);
-                double w_s = 1.0;
-
-                total_weight *= w_r * w_phi * w_s;
+                int i = static_cast<int>((phi_hat - scan_msg.angle_min) / scan_msg.angle_increment);
+                if (i >= 0 && i < scan_msg.ranges.size()) {
+                    double r_meas = scan_msg.ranges[i];
+                    if (!std::isnan(r_meas) && std::isfinite(r_meas)) {
+                        double prob_r = gaussian(r_meas - r_hat, sigma_r);
+                        double prob_phi = gaussian(0.0, sigma_phi);  // Assume perfect correspondence for now
+                        double prob_s = 1.0; // known correspondence
+                        total_weight += prob_r * prob_phi * prob_s;
+                    }
+                }
             }
             p.weight = total_weight;
         }
@@ -136,15 +135,6 @@ private:
 ParticleFilter* pf_ptr = nullptr;
 ros::Publisher pose_pub;
 tf::TransformBroadcaster* tf_broadcaster_ptr = nullptr;
-geometry_msgs::Pose ground_truth_pose;
-
-void groundTruthCallback(const gazebo_msgs::ModelStates::ConstPtr& msg) {
-    auto it = std::find(msg->name.begin(), msg->name.end(), "husky");
-    if (it != msg->name.end()) {
-        int index = std::distance(msg->name.begin(), it);
-        ground_truth_pose = msg->pose[index];
-    }
-}
 
 void odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     if (pf_ptr) pf_ptr->motionUpdate(*msg);
@@ -171,11 +161,6 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
         q.setRPY(0, 0, est.theta);
         tf.setRotation(q);
         tf_broadcaster_ptr->sendTransform(tf::StampedTransform(tf, msg->header.stamp, "map", "base_link"));
-
-        double dx = ground_truth_pose.position.x - est.x;
-        double dy = ground_truth_pose.position.y - est.y;
-        double error = sqrt(dx * dx + dy * dy);
-        ROS_INFO("Estimation error: %.3f meters", error);
     }
 }
 
@@ -193,7 +178,6 @@ int main(int argc, char** argv) {
 
     ros::Subscriber odom_sub = nh.subscribe("/husky_velocity_controller/odom", 1, odomCallback);
     ros::Subscriber scan_sub = nh.subscribe("/front/scan", 1, scanCallback);
-    ros::Subscriber gt_sub = nh.subscribe("/gazebo/model_states", 1, groundTruthCallback);
 
     pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/particle_pose", 1);
 
