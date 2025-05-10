@@ -32,16 +32,19 @@ public:
     }
 
     void motionUpdate(const nav_msgs::Odometry& odom_msg) {
+        ROS_INFO("Motion update called with odom: x=%.2f y=%.2f", 
+                 odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y);
+    
         for (auto& p : particles_) {
             p.x += 0.01 * std::cos(p.theta);
             p.y += 0.01 * std::sin(p.theta);
-            // Optional: Add noise and theta update if desired
         }
     }
+    
 
     void sensorUpdate(const sensor_msgs::LaserScan& scan_msg) {
         for (auto& p : particles_) {
-            p.weight = 1.0; // Uniform weights, placeholder
+            p.weight = 1.0; // Basit sabit ağırlık (placeholder)
         }
     }
 
@@ -64,17 +67,20 @@ private:
     std::vector<Particle> particles_;
 };
 
-// Global
+// Global değişkenler
 ParticleFilter* pf_ptr = nullptr;
 ros::Publisher pose_pub;
 tf::TransformBroadcaster* tf_broadcaster_ptr = nullptr;
 
 void odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
+    ROS_INFO("odomCallback triggered");
     if (pf_ptr) {
         pf_ptr->motionUpdate(*msg);
     }
 }
 
+
+// Lidar scan callback
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
     if (pf_ptr) {
         pf_ptr->sensorUpdate(*msg);
@@ -104,7 +110,6 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
     }
 }
 
-
 int main(int argc, char** argv) {
     ros::init(argc, argv, "particle_filter_node");
     ros::NodeHandle nh;
@@ -117,9 +122,10 @@ int main(int argc, char** argv) {
     tf::TransformBroadcaster tf_broadcaster;
     tf_broadcaster_ptr = &tf_broadcaster;
 
+    // ✅ ROSBAG'deki gerçek topic isimlerini kullan!
     ros::Subscriber odom_sub = nh.subscribe("/husky_velocity_controller/odom", 1, odomCallback);
     ros::Subscriber scan_sub = nh.subscribe("/front/scan", 1, scanCallback);
-    
+
     pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/particle_pose", 1);
 
     ros::spin();
