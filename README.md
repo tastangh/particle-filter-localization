@@ -104,4 +104,4 @@ cd ~/robotlar_ws && source devel/setup.bash
 rosbag play src/hw3.bag --clock
 
 # Terminal 4:
-rviz -d ~/robotlar_ws/src/localization_config.rviz
+rviz -d ~/robotlar_ws/src/particle_filter_localization/localization_config.rviz
