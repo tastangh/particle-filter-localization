@@ -101,3 +101,12 @@ Eğer RViz'de No TF Data uyarısı alırsanız rosbag dosyasının --clock ile o
 odom verisi /husky_velocity_controller/odom, lidar ise /front/scan topiclerinden okunmaktadır.
 
 Gelişmiş hareket modeli Denklem (1-2) ve sensör modeli Denklem (3) ile uyumludur (hw3.pdf'e göre).
+
+
+
+Çıktılar 
+
+Pozisyon Hatası Ortalaması: 40.00 m
+Pozisyon Hatası Std: 19.37 m
+Yaw Hatası Ortalaması: 2.54 rad
+Yaw Hatası Std: 1.14 rad
