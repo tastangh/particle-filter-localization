@@ -27,7 +27,8 @@ Visualization Manager:
       Acceleration Arrow Color: 1; 0; 1
       Angular Velocity Arrow Color: 0; 1; 1
       Alpha: 1.0
-      Scale: 1.0
+      Scale: 0.05  # 🔧 Eskisi: 1.0
+
   Enabled: true
   Name: root
   Tools:
