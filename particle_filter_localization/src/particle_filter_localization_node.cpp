@@ -1,5 +1,3 @@
-// particle_filter_localization_node.cpp
-
 #include <ros/ros.h>
 #include <geometry_msgs/Twist.h>
 #include <sensor_msgs/LaserScan.h>
@@ -95,6 +93,13 @@ void publish_estimate() {
     tf::Quaternion q = tf::createQuaternionFromYaw(theta);
     tf::quaternionTFToMsg(q, pose.pose.orientation);
     pose_pub.publish(pose);
+
+    // === TF Yayını ===
+    static tf::TransformBroadcaster br;
+    tf::Transform transform;
+    transform.setOrigin(tf::Vector3(x, y, 0.0));
+    transform.setRotation(q);
+    br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "base_link"));
 }
 
 void odom_callback(const nav_msgs::Odometry::ConstPtr& msg) {
