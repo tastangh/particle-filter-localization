@@ -1,185 +1,131 @@
+// particle_filter_localization_node.cpp
+
 #include <ros/ros.h>
+#include <geometry_msgs/Twist.h>
 #include <sensor_msgs/LaserScan.h>
 #include <nav_msgs/Odometry.h>
+#include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <tf/transform_broadcaster.h>
 #include <random>
 #include <vector>
 #include <cmath>
-#include <map>
 
 struct Particle {
-    double x, y, theta;
-    double weight;
+    double x, y, theta, weight;
 };
 
-struct Landmark {
-    double x, y;
-    int id;
-};
+const int NUM_PARTICLES = 500;
+const double ALPHA1 = 0.001, ALPHA2 = 0.001;
+const double ALPHA3 = 0.001, ALPHA4 = 0.001;
+const double ALPHA5 = 0.0001, ALPHA6 = 0.0001;
+const double SIGMA_R = 0.5, SIGMA_PHI = 0.1, SIGMA_S = 0.05;
 
-class ParticleFilter {
-public:
-    ParticleFilter(int num_particles)
-        : num_particles_(num_particles), gen_(rd_()) {
-        landmarks_ = {
-            {1, {5.0, 5.0}},
-            {2, {-5.0, 5.0}},
-            {3, {-5.0, -5.0}},
-            {4, {5.0, -5.0}}
-        };
-        initParticles();
-    }
+std::vector<Particle> particles;
+ros::Publisher pose_pub, cloud_pub;
+double dt = 0.1; // Varsayılan zaman adımı
 
-    void initParticles() {
-        std::uniform_real_distribution<double> x_dist(0.0, 2.0);
-        std::uniform_real_distribution<double> y_dist(14.0, 16.0);
-        std::uniform_real_distribution<double> theta_dist(-M_PI, M_PI);
-        particles_.clear();
-        for (int i = 0; i < num_particles_; ++i) {
-            particles_.push_back({x_dist(gen_), y_dist(gen_), theta_dist(gen_), 1.0});
-        }
-    }
-
-    void motionUpdate(const nav_msgs::Odometry& odom_msg) {
-        double dt = 0.1;
-        double v = odom_msg.twist.twist.linear.x;
-        double w = odom_msg.twist.twist.angular.z;
-
-        double a1 = 0.01, a2 = 0.01, a3 = 0.01, a4 = 0.01, a5 = 0.01, a6 = 0.01;
-
-        for (auto& p : particles_) {
-            double v_hat = v + sample(a1 * v * v + a2 * w * w);
-            double w_hat = w + sample(a3 * v * v + a4 * w * w);
-            double gamma_hat = sample(a5 * v * v + a6 * w * w);
-
-            if (std::fabs(w_hat) > 1e-5) {
-                p.x += -v_hat / w_hat * sin(p.theta) + v_hat / w_hat * sin(p.theta + w_hat * dt);
-                p.y += v_hat / w_hat * cos(p.theta) - v_hat / w_hat * cos(p.theta + w_hat * dt);
-            } else {
-                p.x += v_hat * dt * cos(p.theta);
-                p.y += v_hat * dt * sin(p.theta);
-            }
-            p.theta += w_hat * dt + gamma_hat * dt;
-        }
-    }
-
-    void sensorUpdate(const sensor_msgs::LaserScan& scan_msg) {
-        double sigma_r = 0.2;
-        double sigma_phi = 0.2;
-        double sigma_s = 0.1;
-
-        for (auto& p : particles_) {
-            double total_weight = 1e-9;  // avoid zero weight
-
-            for (const auto& lm_pair : landmarks_) {
-                const Landmark& lm = lm_pair.second;
-                double dx = lm.x - p.x;
-                double dy = lm.y - p.y;
-                double r_hat = std::sqrt(dx * dx + dy * dy);
-                double phi_hat = std::atan2(dy, dx) - p.theta;
-
-                int i = static_cast<int>((phi_hat - scan_msg.angle_min) / scan_msg.angle_increment);
-                if (i >= 0 && i < scan_msg.ranges.size()) {
-                    double r_meas = scan_msg.ranges[i];
-                    if (!std::isnan(r_meas) && std::isfinite(r_meas)) {
-                        double prob_r = gaussian(r_meas - r_hat, sigma_r);
-                        double prob_phi = gaussian(0.0, sigma_phi);  // Assume perfect correspondence for now
-                        double prob_s = 1.0; // known correspondence
-                        total_weight += prob_r * prob_phi * prob_s;
-                    }
-                }
-            }
-            p.weight = total_weight;
-        }
-        resample();
-    }
-
-    void resample() {
-        std::vector<Particle> new_particles;
-        std::vector<double> weights;
-        for (const auto& p : particles_) weights.push_back(p.weight);
-
-        std::discrete_distribution<> dist(weights.begin(), weights.end());
-        for (int i = 0; i < num_particles_; ++i) {
-            new_particles.push_back(particles_[dist(gen_)]);
-        }
-        particles_ = new_particles;
-    }
-
-    Particle getBestEstimate() {
-        Particle best = particles_[0];
-        for (const auto& p : particles_) {
-            if (p.weight > best.weight) best = p;
-        }
-        return best;
-    }
-
-private:
-    double sample(double stddev) {
-        std::normal_distribution<double> dist(0.0, std::sqrt(stddev));
-        return dist(gen_);
-    }
-
-    double gaussian(double mu, double sigma) {
-        return exp(-mu * mu / (2 * sigma * sigma)) / (sigma * sqrt(2 * M_PI));
-    }
-
-    int num_particles_;
-    std::vector<Particle> particles_;
-    std::map<int, Landmark> landmarks_;
-    std::random_device rd_;
-    std::default_random_engine gen_;
-};
-
-ParticleFilter* pf_ptr = nullptr;
-ros::Publisher pose_pub;
-tf::TransformBroadcaster* tf_broadcaster_ptr = nullptr;
-
-void odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
-    if (pf_ptr) pf_ptr->motionUpdate(*msg);
+double sample_normal(double stddev) {
+    static std::default_random_engine gen;
+    std::normal_distribution<double> dist(0.0, stddev);
+    return dist(gen);
 }
 
-void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
-    if (pf_ptr) {
-        pf_ptr->sensorUpdate(*msg);
-        Particle est = pf_ptr->getBestEstimate();
+void motion_update(double nu, double omega) {
+    for (auto& p : particles) {
+        double nu_hat = nu + sample_normal(ALPHA1 * nu * nu + ALPHA2 * omega * omega);
+        double omega_hat = omega + sample_normal(ALPHA3 * nu * nu + ALPHA4 * omega * omega);
+        double gamma_hat = sample_normal(ALPHA5 * nu * nu + ALPHA6 * omega * omega);
 
-        geometry_msgs::PoseStamped pose_msg;
-        pose_msg.header.stamp = msg->header.stamp;
-        pose_msg.header.frame_id = "map";
-        pose_msg.pose.position.x = est.x;
-        pose_msg.pose.position.y = est.y;
-        pose_msg.pose.orientation.z = sin(est.theta / 2.0);
-        pose_msg.pose.orientation.w = cos(est.theta / 2.0);
-
-        pose_pub.publish(pose_msg);
-
-        tf::Transform tf;
-        tf.setOrigin(tf::Vector3(est.x, est.y, 0.0));
-        tf::Quaternion q;
-        q.setRPY(0, 0, est.theta);
-        tf.setRotation(q);
-        tf_broadcaster_ptr->sendTransform(tf::StampedTransform(tf, msg->header.stamp, "map", "base_link"));
+        if (fabs(omega_hat) > 1e-5) {
+            p.x += -nu_hat / omega_hat * sin(p.theta) + nu_hat / omega_hat * sin(p.theta + omega_hat * dt);
+            p.y += nu_hat / omega_hat * cos(p.theta) - nu_hat / omega_hat * cos(p.theta + omega_hat * dt);
+        } else {
+            p.x += nu_hat * dt * cos(p.theta);
+            p.y += nu_hat * dt * sin(p.theta);
+        }
+        p.theta += omega_hat * dt + gamma_hat * dt;
     }
+}
+
+void normalize_weights() {
+    double sum = 0.0;
+    for (const auto& p : particles) sum += p.weight;
+    for (auto& p : particles) p.weight /= sum + 1e-6;
+}
+
+std::vector<Particle> resample_particles() {
+    std::vector<Particle> new_particles;
+    std::vector<double> cumulative;
+    cumulative.push_back(particles[0].weight);
+    for (size_t i = 1; i < particles.size(); ++i) {
+        cumulative.push_back(cumulative[i-1] + particles[i].weight);
+    }
+
+    std::default_random_engine gen;
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
+
+    for (int i = 0; i < NUM_PARTICLES; ++i) {
+        double r = dist(gen);
+        for (size_t j = 0; j < cumulative.size(); ++j) {
+            if (r <= cumulative[j]) {
+                new_particles.push_back(particles[j]);
+                break;
+            }
+        }
+    }
+    return new_particles;
+}
+
+void publish_estimate() {
+    double x = 0, y = 0, cos_sum = 0, sin_sum = 0;
+    for (const auto& p : particles) {
+        x += p.x * p.weight;
+        y += p.y * p.weight;
+        cos_sum += cos(p.theta) * p.weight;
+        sin_sum += sin(p.theta) * p.weight;
+    }
+    double theta = atan2(sin_sum, cos_sum);
+
+    geometry_msgs::PoseStamped pose;
+    pose.header.stamp = ros::Time::now();
+    pose.header.frame_id = "map";
+    pose.pose.position.x = x;
+    pose.pose.position.y = y;
+    tf::Quaternion q = tf::createQuaternionFromYaw(theta);
+    tf::quaternionTFToMsg(q, pose.pose.orientation);
+    pose_pub.publish(pose);
+}
+
+void odom_callback(const nav_msgs::Odometry::ConstPtr& msg) {
+    double nu = msg->twist.twist.linear.x;
+    double omega = msg->twist.twist.angular.z;
+    motion_update(nu, omega);
+    normalize_weights();
+    particles = resample_particles();
+    publish_estimate();
 }
 
 int main(int argc, char** argv) {
-    ros::init(argc, argv, "particle_filter_node");
+    ros::init(argc, argv, "particle_filter_localization_node");
     ros::NodeHandle nh;
 
-    int num_particles = 100;
-    nh.getParam("num_particles", num_particles);
-    ParticleFilter pf(num_particles);
-    pf_ptr = &pf;
+    pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/particle_pose", 10);
 
-    tf::TransformBroadcaster tf_broadcaster;
-    tf_broadcaster_ptr = &tf_broadcaster;
+    ros::Subscriber odom_sub = nh.subscribe("/husky_velocity_controller/odom", 10, odom_callback);
 
-    ros::Subscriber odom_sub = nh.subscribe("/husky_velocity_controller/odom", 1, odomCallback);
-    ros::Subscriber scan_sub = nh.subscribe("/front/scan", 1, scanCallback);
-
-    pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/particle_pose", 1);
+    // Parçacıkları başlangıçta rasgele yerleştir
+    std::default_random_engine gen;
+    std::uniform_real_distribution<double> dist_x(-20, 20);
+    std::uniform_real_distribution<double> dist_y(-20, 20);
+    std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
+    particles.resize(NUM_PARTICLES);
+    for (auto& p : particles) {
+        p.x = dist_x(gen);
+        p.y = dist_y(gen);
+        p.theta = dist_theta(gen);
+        p.weight = 1.0 / NUM_PARTICLES;
+    }
 
     ros::spin();
     return 0;
